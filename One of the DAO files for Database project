@@ -1,0 +1,238 @@
+package edu.ncsu.csc540.quizone.dao;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import javax.sql.DataSource;
+
+import oracle.jdbc.OracleTypes;
+
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.SqlOutParameter;
+import org.springframework.jdbc.core.SqlParameter;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
+import org.springframework.jdbc.core.simple.SimpleJdbcCall;
+
+import edu.ncsu.csc540.quizone.model.HomeworkDetails;
+import edu.ncsu.csc540.quizone.model.QuestionDetails;
+import edu.ncsu.csc540.quizone.model.Topics;
+
+
+public class ProfessorCourseDAOImpl extends CourseDAO{
+
+	
+    public ProfessorCourseDAOImpl(DataSource dataSource) {
+    	super(dataSource);
+    }
+    
+public List<HomeworkDetails> listHomework(String username, String courseID,String proc_name) {
+    	
+    	RowMapper<HomeworkDetails> rowMapper = new RowMapper<HomeworkDetails>() {
+     
+            @Override
+            public HomeworkDetails mapRow(ResultSet rs, int rowNum) throws SQLException {
+                HomeworkDetails aHomework = new HomeworkDetails();
+     
+                aHomework.setQuizID(rs.getInt("quiz_id"));
+                aHomework.setNumQuestions(rs.getInt("no_of_questions"));
+                aHomework.setDiffLevelST(rs.getInt("diff_level_st"));
+                aHomework.setDiffLevelED(rs.getInt("diff_level_ed"));
+                aHomework.setGradingOptions(rs.getString("grade_option"));
+                aHomework.setDeadline(rs.getDate("deadline"));
+                aHomework.setPublishDate(rs.getDate("publish_date"));
+                aHomework.setCorrectPoints(rs.getInt("correct_points"));
+                aHomework.setWrongPoints(rs.getInt("wrong_points"));
+                aHomework.setNumAttempts(rs.getInt("no_attempts"));
+                aHomework.setCid(rs.getString("cid"));
+                return aHomework;
+            }
+    	};
+            
+    	jdbcProc = new SimpleJdbcCall(jdbcTemplate)
+    					.withProcedureName(proc_name)
+    					.declareParameters(
+    							new SqlParameter("USER_ID",OracleTypes.VARCHAR),
+    							new SqlParameter("COURSE_ID",OracleTypes.VARCHAR),
+    							new SqlOutParameter("p_out", OracleTypes.CURSOR, rowMapper)
+    							);
+    	
+    	System.out.println("****Initalizing params");
+    	SqlParameterSource in = new MapSqlParameterSource().addValue("USER_ID",username)
+    														.addValue("COURSE_ID",courseID );
+    	
+    	System.out.println("****Executing sp");
+    	Map<String, Object> map = jdbcProc.execute(in);
+		System.out.println("****Values in map" + map.values());
+		List <HomeworkDetails> x = (List<HomeworkDetails>) map.get("p_out");
+		
+		return x; // (List <Homework>) map.get("P_OUT");
+    }
+
+
+ 
+public List<Topics> listTopics(String username, String courseID,String proc_name) {
+	
+	RowMapper<Topics> rowMapper = new RowMapper<Topics>() {
+ 
+        @Override
+        public Topics mapRow(ResultSet rs, int rowNum) throws SQLException {
+            Topics aTopic = new Topics();
+ 
+            aTopic.setTid(rs.getInt("topic_id"));
+            aTopic.setTname(rs.getString("topic_name"));
+            return aTopic;
+        }
+	};
+        
+	jdbcProc = new SimpleJdbcCall(jdbcTemplate)
+					.withProcedureName(proc_name)
+					.declareParameters(
+							new SqlParameter("USER_ID",OracleTypes.VARCHAR),
+							new SqlParameter("COURSE_ID",OracleTypes.VARCHAR),
+							new SqlOutParameter("p_out", OracleTypes.CURSOR, rowMapper)
+							);
+	
+	System.out.println("****Initalizing params");
+	SqlParameterSource in = new MapSqlParameterSource().addValue("USER_ID",username)
+														.addValue("COURSE_ID",courseID );
+	
+	System.out.println("****Executing sp");
+	Map<String, Object> map = jdbcProc.execute(in);
+	System.out.println("****Values in map" + map.values());
+	List <Topics> x = (List<Topics>) map.get("p_out");
+	
+	return x; // (List <Homework>) map.get("P_OUT");
+}
+
+public List<QuestionDetails> listQuestions(String username, String courseID, int diffLevel, int[] topicList, String proc_name) {
+	
+	RowMapper<QuestionDetails> rowMapper = new RowMapper<QuestionDetails>() {
+ 
+        @Override
+        public QuestionDetails mapRow(ResultSet rs, int rowNum) throws SQLException {
+            QuestionDetails aQuestion = new QuestionDetails();
+ 
+            aQuestion.setQuestionID(rs.getInt("qid"));
+            aQuestion.setDiffLevel(rs.getInt("d_level"));
+            aQuestion.setExplanation(rs.getString("explanation"));
+            aQuestion.setHint(rs.getString("hint"));
+            aQuestion.setWrongPoints(rs.getInt("neg_marks"));
+            aQuestion.setCorrectPoints(rs.getInt("pos_marks"));
+            aQuestion.setQuestionText(rs.getString("q_text"));
+            aQuestion.setRootQID(rs.getInt("root_id"));
+            aQuestion.setTopicID(rs.getInt("topic_id"));
+            return aQuestion;
+        }
+	};
+        
+	jdbcProc = new SimpleJdbcCall(jdbcTemplate)
+					.withProcedureName(proc_name)
+					.declareParameters(
+							new SqlParameter("USER_ID",OracleTypes.VARCHAR),
+							new SqlParameter("COURSE_ID",OracleTypes.VARCHAR),
+							new SqlParameter("DIFF_LEVEL",OracleTypes.VARCHAR),
+							new SqlParameter("TOPICID",OracleTypes.INTEGER),
+							new SqlOutParameter("p_out", OracleTypes.CURSOR, rowMapper)
+							);
+	
+	List <QuestionDetails> output = new ArrayList<QuestionDetails>();
+	for (int topic_id : topicList)
+	{
+		System.out.println("****Initalizing params");
+		SqlParameterSource in = new MapSqlParameterSource().addValue("USER_ID",username)
+															.addValue("COURSE_ID",courseID )
+															.addValue("DIFF_LEVEL", diffLevel)
+															.addValue("TOPICID", topic_id);
+		
+		System.out.println("****Executing sp");
+		Map<String, Object> map = jdbcProc.execute(in);
+		System.out.println("****Values in map" + map.values());
+		
+		List <QuestionDetails> x = (List<QuestionDetails>) map.get("p_out");
+		output.addAll(x);
+	}
+	System.out.println("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&");
+	for (QuestionDetails q : output)
+	{
+		System.out.println(q);
+		System.out.println(q.getTopicID());
+	}
+	System.out.println("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&");
+	return output; // (List <Homework>) map.get("P_OUT");
+}
+
+
+
+public List<QuestionDetails> addQuestionsToHomework(String username, Integer courseID, int[] qList, String proc_name) {
+	
+	
+	/*RowMapper<QuestionDetails> rowMapper = new RowMapper<QuestionDetails>() {
+ 
+        @Override
+        public QuestionDetails mapRow(ResultSet rs, int rowNum) throws SQLException {
+            QuestionDetails Question = new QuestionDetails();
+ 
+            Question.setQuestionID(rs.getInt("qid"));
+            Question.setDiffLevel(rs.getInt("d_level"));
+            Question.setExplanation(rs.getString("explanation"));
+            Question.setHint(rs.getString("hint"));
+            Question.setWrongPoints(rs.getInt("neg_marks"));
+            Question.setCorrectPoints(rs.getInt("pos_marks"));
+            Question.setQuestionText(rs.getString("q_text"));
+            Question.setRootQID(rs.getInt("root_id"));
+            Question.setTopicID(rs.getInt("topic_id"));
+            return Question;
+        }
+	};*/
+    
+	
+	
+	jdbcProc = new SimpleJdbcCall(jdbcTemplate)
+					.withProcedureName(proc_name)
+					.declareParameters(
+							new SqlParameter("HW_ID",OracleTypes.INTEGER),
+							new SqlParameter("QUES_ID",OracleTypes.INTEGER),
+							new SqlOutParameter("ADDED", OracleTypes.INTEGER)
+							);
+	
+	List <QuestionDetails> output = new ArrayList<QuestionDetails>();
+	for (int q_id : qList)
+	{
+		System.out.println("****Initalizing params");
+		SqlParameterSource in = new MapSqlParameterSource().addValue("HW_ID",1)
+															.addValue("QUES_ID",q_id);
+		
+		System.out.println("****Executing sp");
+		Map<String, Object> map = jdbcProc.execute(in);
+		System.out.println("****Values in map" + map.values());
+		Integer x = (Integer) map.get("ADDED");
+		if(x == 1){
+			QuestionDetails q = new QuestionDetails();
+			q.setQuestionID(q_id);
+			
+			// Logic to fill rest of details
+		
+			// Logic to fill rest of details
+			
+			output.add(q);
+		}
+		//List <QuestionDetails> x = (List<QuestionDetails>) map.get("p_out");
+		//output.add(x);
+	}
+	System.out.println("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&");
+	for (QuestionDetails q : output)
+	{
+		System.out.println(q);
+		System.out.println(q.getTopicID());
+	}
+	System.out.println("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&");
+	return output; // (List <Homework>) map.get("P_OUT");
+	
+
+}
+
+}
