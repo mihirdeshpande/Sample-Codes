@@ -1,0 +1,309 @@
+/*Lab3.c*/
+
+#include <conf.h>
+#include <kernel.h>
+#include <proc.h>
+#include <paging.h>
+/*#ifndef DEBUG
+#define DEBUG
+#endif*/
+
+SYSCALL write_to_memory(unsigned long addr, unsigned long data)
+{
+	if(addr < 1024*NBPG || addr > 4095*NBPG)
+	{
+		return SYSERR;
+	}
+
+	unsigned long *phy_addr = (unsigned long *)(addr);
+	*phy_addr = data;	
+	#ifdef DEBUG
+		 kprintf("\nwritten %d to %d\n", *phy_addr, addr);
+	#endif
+
+	return OK;
+}
+
+
+SYSCALL read_from_memory(unsigned long addr, unsigned long **data){
+	if(addr < 1024*NBPG || addr > 4095*NBPG)
+		return SYSERR;
+
+	*data = (unsigned long *)(addr);
+#ifdef DEBUG
+	kprintf("\ndata at %d is %d\n", addr, **data);
+#endif
+	//*data = *(unsigned long *)(addr);
+	return OK;
+}
+
+int write_null_pd()
+{
+	int frm_pd, i;
+	unsigned long *test;
+	get_frm(&frm_pd);
+	frm_tab[frm_pd - 1024].fr_type = FR_DIR;
+	frm_tab[frm_pd - 1024].fr_pid = 0;
+	proctab[0].pdbr = frm_pd;
+
+	pd_t *page_dir = frm_pd * NBPG;
+	
+	for(i = 0; i < 4 ; i++){
+		page_dir[i].pd_pres = 1;
+		page_dir[i].pd_write = 1;
+		page_dir[i].pd_user = 0;
+		page_dir[i].pd_pwt = 0;
+		page_dir[i].pd_pcd = 0;
+		page_dir[i].pd_acc = 0;
+		page_dir[i].pd_mbz = 0;
+		page_dir[i].pd_fmb = 0;
+		page_dir[i].pd_global = 0;
+		page_dir[i].pd_avail = 0;
+		page_dir[i].pd_base = frm_pd+i+1;
+	}	
+
+	/*for(i = 0; i < 4; i++){
+	write_to_memory((frm_pd*NBPG)+(i*sizeof(unsigned long *)), (frm_pd+i+1) << 12 | 3);
+	read_from_memory((frm_pd*NBPG)+(i*sizeof(unsigned long *)),&test);
+	}*/
+	return OK;
+}
+
+int init_global_pages()
+{
+	int frm_pg, i, j;
+	unsigned long *test;	
+	pt_t *glb_pgs;
+	for(i = 0; i < 4; i++)
+	{
+		get_frm(&frm_pg);
+		glb_pgs = frm_pg*NBPG;
+		frm_tab[frm_pg - 1024].fr_type = FR_TBL;
+		frm_tab[frm_pg - 1024].fr_pid = 0;
+		for(j = 0; j < 1024; j++)
+		{
+			glb_pgs[j].pt_pres = 1;
+			glb_pgs[j].pt_write = 1;
+			glb_pgs[j].pt_user = 0;
+			glb_pgs[j].pt_pwt = 0;
+			glb_pgs[j].pt_pcd = 0;
+			glb_pgs[j].pt_acc = 0;
+			glb_pgs[j].pt_mbz = 0;
+			glb_pgs[j].pt_dirty = 0;
+			glb_pgs[j].pt_global = 0;
+			glb_pgs[j].pt_avail = 0;
+			glb_pgs[j].pt_base = (i * 1024) + j;
+		}
+	}
+
+	/*for(i = 0; i < 4; i++)
+	{
+		get_frm(&frm_pg);
+		frm_tab[frm_pg - 1024].fr_type = FR_TBL;
+		for(j = 0; j < 1024; j++)
+		{
+			write_to_memory((frm_pg*NBPG) + (j*sizeof(unsigned long *)),((i * 1024) + j) << 12 | 3);
+			read_from_memory((frm_pg*NBPG) + (j*sizeof(unsigned long *)),&test);
+		}
+	}*/
+	return OK;
+}
+
+int init_page_directory(int current_pid){
+	int frm_pd, i;
+	unsigned long *test;
+	get_frm(&frm_pd);
+	frm_tab[frm_pd - 1024].fr_type = FR_DIR;
+	frm_tab[frm_pd - 1024].fr_pid = current_pid;
+	proctab[current_pid].pdbr = frm_pd;
+	pd_t *proc_page_dir = frm_pd*NBPG;
+	
+	for(i = 0; i < 4; i++){
+		proc_page_dir[i].pd_pres = 1;
+		proc_page_dir[i].pd_write = 1;
+		proc_page_dir[i].pd_user = 0;
+		proc_page_dir[i].pd_pwt = 0;
+		proc_page_dir[i].pd_pcd = 0;
+		proc_page_dir[i].pd_acc = 0;
+		proc_page_dir[i].pd_mbz = 0;
+		proc_page_dir[i].pd_fmb = 0;
+		proc_page_dir[i].pd_global = 0;
+		proc_page_dir[i].pd_avail = 0;
+		proc_page_dir[i].pd_base = 1025+i;
+	}
+		 
+	/*for(i = 0; i < 4; i++){
+		write_to_memory((frm_pd*NBPG)+(i*sizeof(unsigned long *)), (1025+i) << 12 | 3);
+		read_from_memory((frm_pd*NBPG)+(i*sizeof(unsigned long *)),&test);	
+	}*/
+	return OK;
+}
+
+
+int get_frm_fifo(){
+	int frm_to_replace = -1;
+	int min_frm_cnt = fifo_max_cnt - 1;
+	int i;
+	/*for(i = 0; i < NFRAMES; i++){
+		kprintf("\nframe %d, type %d, cnt %d", i+1024,frm_tab[i].fr_type,fifo_queue[i]);
+	}*/
+	for(i = 0; i < NFRAMES; i++){
+		if(frm_tab[i].fr_type == FR_PAGE && fifo_queue[i] <= min_frm_cnt){
+			min_frm_cnt = fifo_queue[i];
+			frm_to_replace = i;
+		}
+	}
+	kprintf("\nProc %d replaced frame: %d, vpno: %d\n",currpid, frm_to_replace+FRAME0, frm_tab[frm_to_replace].fr_vpno);	
+	return frm_to_replace;
+}
+
+void init_fifo_queue(){
+	int i;
+	for(i = 0; i < NFRAMES; i++){
+		fifo_queue[i] = -1;
+	}
+}
+
+int invalidate_frm(int frm_no){
+	int owner_proc = frm_tab[frm_no].fr_pid;
+	int virt_pg_no = frm_tab[frm_no].fr_vpno;
+	unsigned long pdbr;
+	pdbr = proctab[owner_proc].pdbr;
+	unsigned long dir_base = pdbr * NBPG;	
+	pd_t *dirbase = dir_base;
+	//dirbase = &dir_base;
+	int dir_off = virt_pg_no/1024;
+	int pg_tab_off = virt_pg_no%1024;
+	unsigned long pg_tab_base = dirbase[dir_off].pd_base * NBPG;
+	pt_t *pgtabbase = pg_tab_base; 
+	//pgtabbase = &pg_tab_base;
+	//kprintf("\nInvalidate::: owner %d, pg_tab_base %d,vpno %d, diroff %d, pgtoff %d\n", owner_proc, pgtabbase[pg_tab_off].pt_base, virt_pg_no, dir_off, pg_tab_off);
+	pgtabbase[pg_tab_off].pt_pres = 0;
+	//kprintf("\npgtabaddr:%d\n",pgtabbase[pg_tab_off].pt_base*NBPG);
+	//kprintf("\dirty:%d\n", pgtabbase[pg_tab_off].pt_dirty);
+	frm_tab[dirbase[dir_off].pd_base - 1024].fr_refcnt--;	// added for refcnt
+	//kprintf("\nIn invalidate refcnt of %d is %d\n", dirbase[dir_off].pd_base, frm_tab[dirbase[dir_off].pd_base - 1024].fr_refcnt);
+	
+	/*code to remove pgtable and empty its frame*/
+	if(frm_tab[dirbase[dir_off].pd_base - 1024].fr_refcnt == 0){
+		dirbase[dir_off].pd_pres = 0;
+		frm_tab[dirbase[dir_off].pd_base - 1024].fr_status = FRM_UNMAPPED;
+		kprintf("\nRelinquishing frame %d (refcnt = 0)\n", dirbase[dir_off].pd_base);
+	}
+	/*End code to remove pgtable and empty its frame*/
+
+	return pgtabbase[pg_tab_off].pt_dirty;
+}
+
+
+void update_for_lru(){
+
+	int i, j, k;
+	pd_t *pdbr;
+	pt_t *pgtabbase;
+	timeCount++;
+	for(i = NPROC - 1; i > 0; i--){
+	
+		if(proctab[i].pstate != PRFREE){
+			pdbr = proctab[i].pdbr * NBPG;
+			
+			for(j = 0; j < 1024; j++){
+				if(pdbr[j].pd_pres == 1){
+					pgtabbase = pdbr[j].pd_base * NBPG;
+					for(k = 0; k < 1024; k++){
+						if((pgtabbase[k].pt_acc == 1) && (pgtabbase[k].pt_pres == 1)){
+							frm_tab[pgtabbase[k].pt_base - 1024].fr_loadtime = timeCount;
+							//if(pgtabbase[k].pt_base>1023 && pgtabbase[k].pt_base<1024+NFRAMES)kprintf("\nSetting accesstime %d for frame %d\n", timeCount, pgtabbase[k].pt_base);
+							pgtabbase[k].pt_acc = 0;
+						} 
+					}
+					
+				}
+
+			}
+		
+		}	
+
+	}
+
+}
+
+int get_frm_lru(){
+	int lru_frame = - 1;
+	int accesstime = 9999999;
+	int virtualpage = 4096;
+	int i;
+
+	for(i = 0; i < NFRAMES; i++){
+
+		if((frm_tab[i].fr_loadtime <= accesstime) && (frm_tab[i].fr_type == FR_PAGE) && (frm_tab[i].fr_status == FRM_MAPPED)){
+			if(accesstime == frm_tab[i].fr_loadtime){
+				
+				if(frm_tab[i].fr_vpno > virtualpage){
+					lru_frame = i;
+					virtualpage = frm_tab[i].fr_vpno;
+				}
+			}
+			else{
+				lru_frame = i;
+				virtualpage = frm_tab[i].fr_vpno;
+				accesstime = frm_tab[i].fr_loadtime;
+			}
+		
+		}	
+
+	}
+	kprintf("\nProc %d replaced frame: %d, vpno: %d, accesstime: %d\n",currpid, lru_frame+FRAME0, frm_tab[lru_frame].fr_vpno, frm_tab[lru_frame].fr_loadtime);
+	return lru_frame;
+}
+
+SYSCALL handle_kill(int proc_id){
+
+	int i;
+
+	for(i = 0; i < NFRAMES; i++){
+		if( (frm_tab[i].fr_status == FRM_MAPPED) && (frm_tab[i].fr_pid == proc_id) && (frm_tab[i].fr_type == FR_PAGE) ){
+			write_bs((i + FRAME0) * NBPG, proctab[proc_id].store, frm_tab[i].fr_vpno - bsm_tab[proctab[proc_id].store].bs_vpno);
+			frm_tab[i].fr_status = FRM_UNMAPPED;
+			frm_tab[i].fr_pid = 0;
+			frm_tab[i].fr_vpno = 0;
+			frm_tab[i].fr_refcnt = 0;
+			frm_tab[i].fr_type = FR_PAGE;
+			frm_tab[i].fr_dirty = 0;
+			frm_tab[i].cookie = NULL;
+			frm_tab[i].fr_loadtime = 0;
+			kprintf("\nProc %d released frame %d while exiting\n", proc_id, i+FRAME0);
+		}
+	}
+
+	for(i = 0; i < MAX_ID; i++){
+		if(bsm_tab[i].bs_status == BSM_MAPPED && bsm_tab[i].bs_pid == proc_id){
+			if(bsm_tab[i].bs_private == 1){
+				bsm_tab[i].bs_status = BSM_UNMAPPED;
+				bsm_tab[i].bs_npages = 0;
+				bsm_tab[i].bs_vpno = 0;
+				bsm_tab[i].bs_pid = 0;
+				bsm_tab[i].bs_private = 0;
+				bsm_tab[i].bs_sem = 0;	
+			}
+			else{
+				bsm_tab[i].bs_sem = 0;
+			}
+		}
+	}
+
+	for(i = 0; i < NFRAMES; i++){
+		if(frm_tab[i].fr_status == FRM_MAPPED && frm_tab[i].fr_pid == proc_id){
+			frm_tab[i].fr_status = FRM_UNMAPPED;
+			frm_tab[i].fr_pid = 0;
+			frm_tab[i].fr_vpno = 0;
+			frm_tab[i].fr_refcnt = 0;
+			frm_tab[i].fr_type = FR_PAGE;
+			frm_tab[i].fr_dirty = 0;
+			frm_tab[i].cookie = NULL;
+			frm_tab[i].fr_loadtime = 0;
+			kprintf("\nProc %d released frame %d while exiting\n", proc_id, i+FRAME0);
+		}
+	}
+	return OK;	
+}
