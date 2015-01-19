@@ -1,0 +1,111 @@
+/* pfint.c - pfint */
+
+#include <conf.h>
+#include <kernel.h>
+#include <paging.h>
+#include <stdio.h>
+#include <proc.h>
+
+/*-------------------------------------------------------------------------
+ * pfint - paging fault ISR
+ *-------------------------------------------------------------------------
+ */
+
+extern int currpid;
+
+void init_new_frm(int newfrm){
+	pt_t *pgtab_base = newfrm * NBPG;
+	int i;
+	for(i = 0; i < 1024; i++){
+	pgtab_base[i].pt_pres = 0;
+	pgtab_base[i].pt_write = 0;
+	pgtab_base[i].pt_user = 0;
+	pgtab_base[i].pt_pwt = 0;
+	pgtab_base[i].pt_pcd = 0;
+	pgtab_base[i].pt_acc = 0;
+	pgtab_base[i].pt_dirty = 0;
+	pgtab_base[i].pt_mbz = 0;
+	pgtab_base[i].pt_global = 0;
+	pgtab_base[i].pt_avail = 0;
+	pgtab_base[i].pt_base = 0;
+	}
+}
+
+SYSCALL pfint()
+{
+	unsigned long pf_addr;	
+	virt_addr_t * pf_v_addr;
+	pf_addr = read_cr2();
+	pf_v_addr = &pf_addr;
+	unsigned long pgdir_off = pf_v_addr[0].pd_offset;
+	unsigned long pgtab_off = pf_v_addr[0].pt_offset;
+	unsigned long pg_off = pf_v_addr[0].pg_offset;
+	unsigned long pgdir_base = proctab[currpid].pdbr;
+	//kprintf("Page Fault::: addr: %d,diroff: %d,pgtaboff: %d,pgoff: %d,pid: %d,dirbase: %d\n", pf_addr, pgdir_off, pgtab_off, pg_off, currpid, pgdir_base);
+	
+	pd_t *pgdir_addr = pgdir_base * NBPG;
+	unsigned int p_in_pgdir = pgdir_addr[pgdir_off].pd_pres;
+	//kprintf("\npresent bit in dir entry: %d\n", p_in_pgdir);
+	int new_frm;
+	int new_frm1;
+	if (p_in_pgdir == 0)
+	{
+		//kprintf("\nNo entry in page dir....\n");
+		get_frm(&new_frm);
+		frm_tab[new_frm - 1024].fr_pid = currpid;
+		frm_tab[new_frm - 1024].fr_type = FR_TBL;
+		frm_tab[new_frm - 1024].fr_refcnt = 0;
+		//frm_tab[new_frm - 1024].fr_vpno = (1024 * pgdir_off) + (pgtab_off);
+		pgdir_addr[pgdir_off].pd_pres = 1;
+		pgdir_addr[pgdir_off].pd_write = 1;
+		pgdir_addr[pgdir_off].pd_base = new_frm;
+		init_new_frm(new_frm);  	//Zero out all entries
+		//kprintf("\nframe %d vpno %d\n", pgdir_addr[pgdir_off].pd_base);
+	}
+	else{
+	
+	pt_t *pgtab_addr = pgdir_addr[pgdir_off].pd_base * NBPG;
+	unsigned int p_in_pgtab = pgtab_addr[pgtab_off].pt_pres;
+	int store=0, pageth;
+	char *dest;
+	if(p_in_pgtab == 0){
+		if(bsm_lookup(currpid, pf_addr, &store, &pageth)==SYSERR){
+			kprintf("\nIllegal address. Killing process %d\n", currpid);
+			kill(currpid);
+		}
+		
+		//kprintf("bs: %d, pageth: %d, pgoff: %d",store,pageth,pgtab_off);
+		get_frm(&new_frm1);
+
+		/*Flush TLB*/
+		if(frm_tab[new_frm1 - 1024].fr_pid == currpid)
+		{
+			//kprintf("\nFLUSHING TLB\n");
+			write_cr3(read_cr3());
+		}	
+		/*End of flush TLB*/
+
+		frm_tab[new_frm1 - 1024].fr_pid = currpid;
+		frm_tab[new_frm1 - 1024].fr_type = FR_PAGE;
+		frm_tab[new_frm1 - 1024].fr_vpno = (1024 * pgdir_off) + (pgtab_off);
+		frm_tab[pgdir_addr[pgdir_off].pd_base - 1024].fr_refcnt++;   //Change for refcnt
+		pgtab_addr[pgtab_off].pt_pres = 1;
+		pgtab_addr[pgtab_off].pt_write = 1;
+		pgtab_addr[pgtab_off].pt_base = new_frm1;
+		dest=new_frm1*NBPG;
+		read_bs(dest, store, pageth);
+
+		/*Code to update for LRU*/
+		if(page_replace_policy == LRU){
+			//kprintf("\nCalling update_for_lru\n");
+			update_for_lru();		
+		}
+		/*End of code to update for LRU*/
+		
+		//write_cr3(proctab[currpid].pdbr*NBPG);
+	}
+	
+	}
+	return OK;
+}
+
