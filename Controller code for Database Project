@@ -1,0 +1,311 @@
+package edu.ncsu.csc540.quizone.controller;
+
+import java.io.IOException;
+import java.sql.ResultSet;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpRequest;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.ModelAndView;
+
+import edu.ncsu.csc540.quizone.dao.ProfessorCourseDAOImpl;
+import edu.ncsu.csc540.quizone.model.Course;
+import edu.ncsu.csc540.quizone.model.CourseToken;
+import edu.ncsu.csc540.quizone.model.HomeworkDetails;
+import edu.ncsu.csc540.quizone.model.QuestionDetails;
+import edu.ncsu.csc540.quizone.model.Topics;
+import edu.ncsu.csc540.quizone.model.UserSession;
+import edu.ncsu.csc540.quizone.utilities.SessionHelper;
+
+
+@Controller
+@RequestMapping(value="/professor")
+public class ProfessorController {
+	
+	@Autowired
+    private ProfessorCourseDAOImpl courseDAO;
+	
+	List<Course> listProfessorCourse;
+	
+	private static String PROC_NAME = "PROC_PROFCOURSE_LIST";
+	List<Course> listCourse;
+
+	private static String PROC_HW_NAME = "PROC_PROFHOMEWORK_LIST";
+	List<HomeworkDetails> listhomework;
+	
+	private static String PROC_TOPIC_NAME = "PROC_TOPIC_LIST";
+	private static String PROC_Q_NAME = "PROC_QUESTION_LIST";
+	private static String PROC_ADD_Q_NAME = "PROC_ADD_QUESTION_TO_HW";
+	
+
+	@RequestMapping(value = "addCourse")
+	public ModelAndView addCourse(ModelAndView model, @RequestParam(value="token", required=false) String courseToken, HttpSession session) {
+		
+		String username  = ((UserSession) session.getAttribute("usersession")).getUsername();
+		
+		if(courseToken!=null)
+		{
+			System.out.println("||||||||||||||||||||||||||||ENtered Token "+courseToken);
+			List<CourseToken> listToken = courseDAO.searchCourseToken(courseToken.toUpperCase());
+			
+			//courseDAO.add(courseToken, username, PROC_ADD_NAME);
+		    System.out.println("list token" + listToken);
+			model.addObject("listToken", listToken);
+		}
+		model.setViewName("addCourse");
+		return model;
+	}
+	
+	@RequestMapping(value="listCourse")
+	public ModelAndView listCourse(ModelAndView model, HttpSession session) throws IOException{
+		
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+		
+
+		System.out.println("session: " + ((UserSession) session.getAttribute("usersession")).getRole_id());
+		String username  = ((UserSession) session.getAttribute("usersession")).getUsername();
+		
+		listCourse = courseDAO.list(username,PROC_NAME);
+		 System.out.println(listCourse);
+		    model.addObject("listCourse", listCourse);
+		    model.setViewName("listCourse");
+		 
+		    return model;
+	}
+	
+	@RequestMapping(value = "viewCourse")
+	public ModelAndView courseview(@RequestParam(value="id", required=true) String courseId, HttpSession session) {
+		
+		ModelAndView model = new ModelAndView();
+		
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+		
+	    for (Course c : listCourse)
+	    {
+	    	if(c.getCid().equals(courseId))
+	    	{
+	    		model.addObject("course", c);
+	    		System.out.println("*********************************Course" + c);
+	    		break;
+	    	}
+	    		
+	    }
+	    model.setViewName("|professor/viewCourse");
+	 
+	    return model;
+	}
+	
+	@RequestMapping(value = "addUpdateHomework")
+	public ModelAndView addupdatehomework(@RequestParam(value="id", required=true) String courseId, HttpSession session) {
+		
+		ModelAndView model = new ModelAndView();
+		
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+		
+	    model.setViewName("|professor/addUpdateHomework");
+	    // To be implemented [Functionality on front end]
+	    return model;
+	}
+	
+	@RequestMapping(value = "viewHomework")
+	public ModelAndView homeworkview(@RequestParam(value="id", required=true) String courseId, HttpSession session) {
+		
+		ModelAndView model = new ModelAndView();
+		
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+		
+		String username  = ((UserSession) session.getAttribute("usersession")).getUsername();
+		listhomework = courseDAO.listHomework(username,courseId,PROC_HW_NAME);
+		
+	    model.addObject("homeworklist", listhomework);
+	    System.out.println("*****************Homework****************" + listhomework);
+	    	
+	    model.setViewName("|professor/viewHomework");
+	 
+	    return model;
+	}
+
+	@RequestMapping(value = "reportQuery")
+	public ModelAndView reportQuery(HttpSession session) {
+
+		ModelAndView model = new ModelAndView();
+
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+
+		List<String> preStoredQuery = courseDAO.fetchPrestoredReportingQuery(); 
+		model.addObject("preStoredQuery",preStoredQuery);
+	    model.setViewName("|professor/report");
+
+	    return model;
+	}
+
+	@RequestMapping(value="executePreStoredQuery")
+	public ModelAndView executePrestoredQuery(@RequestParam(value="id", required=true) String queryName, HttpServletRequest request, HttpSession session) {
+		ModelAndView model = new ModelAndView();
+
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+
+		
+		String queryText = courseDAO.fetchPrestoredReportingQueryText(queryName);
+		
+		System.out.println("*************** queryText " + queryText);
+
+		ResultSet rs = courseDAO.executeQuery(queryText);
+
+		List<String> preStoredQuery = courseDAO.fetchPrestoredReportingQuery(); 
+		model.addObject("preStoredQuery",preStoredQuery);
+	    model.setViewName("|professor/report");
+
+	    request.getSession().setAttribute("rs", rs);
+
+
+		return model;
+	}
+	
+	@RequestMapping(value = "executeQuery", method = RequestMethod.POST)
+	public ModelAndView executeQuery(HttpServletRequest request, HttpSession session) {
+
+		ModelAndView model = new ModelAndView();
+
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+
+		String queryText = (String) request.getParameter("queryText");
+
+		System.out.println("*************** queryText " + queryText);
+
+		ResultSet rs = courseDAO.executeQuery(queryText);
+
+		List<String> preStoredQuery = courseDAO.fetchPrestoredReportingQuery(); 
+		model.addObject("preStoredQuery",preStoredQuery);
+	    model.setViewName("|professor/report");
+
+	    request.getSession().setAttribute("rs", rs);
+
+	    //model.addObject(rs);
+
+	    return model;
+	}
+	
+	
+	@RequestMapping(value = "questionForm")
+	public ModelAndView viewtopics(@RequestParam(value="id", required=true) String courseId, HttpSession session) {
+
+		ModelAndView model = new ModelAndView();
+
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+
+		String username  = ((UserSession) session.getAttribute("usersession")).getUsername();
+		List<Topics> listtopic = courseDAO.listTopics(username,courseId,PROC_TOPIC_NAME);
+
+	    model.addObject("topiclist", listtopic);
+	    System.out.println("*****************Listing Topics*******" + listtopic);
+
+	    model.setViewName("|professor/questionForm");
+	    model.addObject("id", courseId);
+
+	    return model;
+	}
+
+	@RequestMapping(value = "addQuestions")
+	public ModelAndView addquestions(@RequestParam(value="id", required=true) String courseID, @RequestParam(value="topicList", required=true) int[] topicList, @RequestParam(value="d_id", required=true) int diffLevel, HttpSession session) {
+
+		ModelAndView model = new ModelAndView();
+
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+		System.out.println("|||||||||||||||||||||||| "+courseID);
+		for (int x : topicList)
+			System.out.println("||||||||||||||||||||| "+ x);
+
+			List<QuestionDetails> listquestion;
+			String username  = ((UserSession) session.getAttribute("usersession")).getUsername();
+
+			listquestion = courseDAO.listQuestions(username,courseID,diffLevel,topicList,PROC_Q_NAME);
+
+			model.addObject("qlist", listquestion);
+
+	    model.setViewName("|professor/addQuestions");
+
+	    return model;
+	}
+	
+	@RequestMapping(value = "viewAddedQuestions")
+	public ModelAndView viewaddedquestions( @RequestParam(value="qlist", required=true) int[] qlist, HttpSession session) {
+
+		ModelAndView model = new ModelAndView();
+
+		if(!SessionHelper.validateSession(session))
+		{
+			SessionHelper.invalidateSession(session);
+			model.setViewName("redirect:/");
+			return model;
+		}
+		//System.out.println("|||||||||||||||||||||||| "+hWID);
+		for (int x : qlist)
+			System.out.println("||||||||||||||||||||| "+ x);
+
+			List<QuestionDetails> listquestion;
+			String username  = ((UserSession) session.getAttribute("usersession")).getUsername();
+
+			listquestion=courseDAO.addQuestionsToHomework(username,1,qlist,PROC_ADD_Q_NAME);
+
+			model.addObject("addedqlist", listquestion);
+
+	    model.setViewName("|professor/viewAddedQuestions");
+
+	    return model;
+	}
+
+}
