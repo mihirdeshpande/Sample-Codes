@@ -1,0 +1,99 @@
+/* frame.c - manage physical frames */
+#include <conf.h>
+#include <kernel.h>
+#include <proc.h>
+#include <paging.h>
+#ifndef DEBUG
+#define DEBUG
+#endif
+
+/*-------------------------------------------------------------------------
+ * init_frm - initialize frm_tab
+ *-------------------------------------------------------------------------
+ */
+SYSCALL init_frm()
+{
+ 	int i;
+ 	for(i = 0; i < NFRAMES; i++){
+		frm_tab[i].fr_status = FRM_UNMAPPED;
+		frm_tab[i].fr_pid = 0;
+		frm_tab[i].fr_vpno = 0;
+		frm_tab[i].fr_refcnt = 0;
+		frm_tab[i].fr_type = FR_PAGE;
+		frm_tab[i].fr_dirty = 0;
+		frm_tab[i].cookie = NULL;
+		frm_tab[i].fr_loadtime = 0;
+	}
+  return OK;
+}
+
+/*-------------------------------------------------------------------------
+ * get_frm - get a free frame according page replacement policy
+ *-------------------------------------------------------------------------
+ */
+SYSCALL get_frm(int* avail)
+{
+ 	int  i, frm_fifo, dirty, frm_lru;
+ 	for(i = 0; i < NFRAMES; i++){
+		if(frm_tab[i].fr_status == FRM_UNMAPPED){
+#ifdef DEBUG
+			 kprintf("\nAcquired frame %d\n", i+FRAME0);
+#endif
+			 frm_tab[i].fr_status = FRM_MAPPED;
+			 fifo_queue[i] = fifo_max_cnt;
+			 fifo_max_cnt++;	
+			 *avail = i+FRAME0;
+			 return OK;
+	  	}
+  	}
+	
+	if(page_replace_policy == FIFO){
+		frm_fifo = get_frm_fifo();
+		if (frm_fifo == -1){
+			kprintf("\nNot enough space\n");
+			return SYSERR;
+		}
+		dirty = invalidate_frm(frm_fifo);
+		if(dirty == 1){
+			//write_bs((frm_fifo + FRAME0) * NBPG, proctab[frm_tab[frm_fifo].fr_pid].store, frm_tab[frm_fifo].fr_vpno - 4096);
+			write_bs((frm_fifo + FRAME0) * NBPG, proctab[frm_tab[frm_fifo].fr_pid].store, frm_tab[frm_fifo].fr_vpno - bsm_tab[proctab[frm_tab[frm_fifo].fr_pid].store].bs_vpno);
+
+			//kprintf("\nStoring dirty frame %d\n", frm_fifo+FRAME0);
+		}
+	
+		fifo_queue[frm_fifo] = fifo_max_cnt;
+		fifo_max_cnt++;
+		//invalidate_frm(frm_fifo);
+		*avail = frm_fifo+FRAME0;
+		return OK;
+	}  	
+
+	else{
+		frm_lru = get_frm_lru();
+		if (frm_lru == -1){
+			kprintf("\nNot enough space\n");
+			return SYSERR;
+		}
+		dirty = invalidate_frm(frm_lru);
+		if(dirty == 1){
+			//write_bs((frm_lru + FRAME0) * NBPG, proctab[frm_tab[frm_lru].fr_pid].store, frm_tab[frm_lru].fr_vpno - 4096);
+			write_bs((frm_lru + FRAME0) * NBPG, proctab[frm_tab[frm_lru].fr_pid].store, frm_tab[frm_lru].fr_vpno - bsm_tab[proctab[frm_tab[frm_lru].fr_pid].store].bs_vpno);
+			//kprintf("\nStoring dirty frame %d\n", frm_lru+FRAME0);
+		}
+		*avail = frm_lru+FRAME0;
+		return OK;
+
+	}
+
+}
+
+/*-------------------------------------------------------------------------
+ * free_frm - free a frame 
+ *-------------------------------------------------------------------------
+ */
+SYSCALL free_frm(int i)
+{
+
+  kprintf("To be implemented!\n");
+  return OK;
+}
