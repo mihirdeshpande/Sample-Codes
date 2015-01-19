@@ -1,0 +1,113 @@
+/* wait.c - wait */
+
+#include <conf.h>
+#include <kernel.h>
+#include <proc.h>
+#include <q.h>
+#include <lock.h>
+#include <stdio.h>
+
+/*------------------------------------------------------------------------
+ * lock
+ *------------------------------------------------------------------------
+ */
+ 
+extern long ctr1000;
+
+ int getMaxWriter(int ldes)
+ {
+	struct lentry * l;
+	int proc;
+	int max = -100;
+	
+	l = &locktab[ldes];
+	if(isempty(l->waitqhead))
+	{
+		return max;
+	}
+	
+	proc = q[l->waitqhead].qnext;
+	while(proc < NPROC)
+	{
+		if(q[proc].qkey > max && proctab[proc].readwrite[ldes] == WRITE)
+		{
+			max = q[proc].qkey;
+		}
+		proc = q[proc].qnext;
+	}
+	return max;
+ }
+ 
+SYSCALL lock(int ldes1, int type, int priority)
+{
+	STATWORD ps;    
+	struct	lentry	*lptr;
+	struct	pentry	*pptr;
+	int MaxWriter = -100;
+
+	disable(ps);
+	
+	pptr= &proctab[currpid];
+	lptr= &locktab[ldes1];
+	
+	if (isbadlock(ldes1) || lptr->lstate==LFREE || (pptr->usedlocks[ldes1] == 1 && lptr->prev_deleted == 1)) {
+		restore(ps);
+		return(SYSERR);
+	}
+	
+	pptr->readwrite[ldes1] = type;
+	if(lptr->ltype==0)
+	{
+		pptr->usedlocks[ldes1] = 1;
+		lptr->ltype = type;
+		if (type == READ)
+		{
+			lptr->readers_count++;
+		}
+		lptr->currentprio = priority;
+		lptr->currentprocs[currpid] = 1;
+		//kprintf("\nREAD lock acquired by %d\n", currpid);
+	}
+	
+	else
+	{
+	
+		MaxWriter = getMaxWriter(ldes1);
+		
+		if (lptr->ltype == READ && type == READ && priority >= MaxWriter)	// Acquire existing read lock
+		{
+			pptr->usedlocks[ldes1] = 1;
+			lptr->currentprocs[currpid] = 1;
+			if(lptr->currentprio < priority)
+			{
+				lptr->currentprio = priority;
+			}
+			if (type == READ)
+			{
+				lptr->readers_count++;
+			}
+			//kprintf("\nREAD lock acquired by %d\n", currpid);
+		}
+		
+		else
+		{
+			//kprintf("\nREAD lock not acquired by %d\n", currpid);
+			pptr->pstate = PRWAIT;
+			insert(currpid, lptr->waitqhead, priority);
+			pptr->intime[ldes1] = ctr1000;
+			//MaxWriter = getMaxWriter(ldes1);
+			//kprintf("\nmaxwriter, proc %d, %d\n", MaxWriter, priority);
+			pptr->pwaitret = OK;
+			resched();
+			lptr->ltype = type;
+			restore(ps);
+			return pptr->pwaitret;
+			
+		}
+	
+	}
+	
+	
+	restore(ps);
+	return(OK);
+}
